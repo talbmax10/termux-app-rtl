@@ -109,8 +109,6 @@ jobs:
 
       - name: Post bootstrap log tail to PR (for diagnostics when blob storage blocked)
         if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           LOG_FILE="termux-packages/bootstrap_build.log"
@@ -119,24 +117,6 @@ jobs:
           echo "=== Last 400 lines of bootstrap_build.log ==="
           tail -n 400 "$LOG_FILE" | head -c 60000 > /tmp/log_tail.txt
           cat /tmp/log_tail.txt
-          # Try to post to PR if this is a pull_request
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "" ]; then
-            echo "Posting log tail to PR #$PR_NUMBER"
-            # Escape for JSON via gh api -f
-            gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --method POST -f body="$(cat <<EOF
-          Bootstrap build failed for run ${{ github.run_id }} — log tail (last 400 lines, truncated):
-          \`\`\`
-          $(cat /tmp/log_tail.txt)
-          \`\`\`
-          EOF
-          )" 2>&1 | head -n 20 || echo "Failed to post PR comment (maybe push trigger, not PR)"
-          else
-            echo "Not a PR event, skipping PR comment (PR_NUMBER empty)"
-            # Fallback: create a temporary issue with log (if not PR)
-            # Use gh api to create issue is not ideal, just echo
-          fi
-          # Also always print to step summary for visibility
           echo "### Bootstrap build log tail" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat /tmp/log_tail.txt >> "$GITHUB_STEP_SUMMARY"

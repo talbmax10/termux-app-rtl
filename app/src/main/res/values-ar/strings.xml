@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="application_name">Termux RTL</string>
+    <string name="shared_user_label">مستخدم Termux RTL</string>
+    <string name="language_preference_title">العربية</string>
+    <string name="language_preference_summary">تبديل واجهة التطبيق إلى العربية</string>
+    <string name="termux_preferences_title">Termux</string>
+    <string name="termux_preferences_summary">إعدادات تطبيق Termux</string>
+    <string name="termux_debugging_preferences_title">التصحيح</string>
+    <string name="termux_debugging_preferences_summary">إعدادات التصحيح</string>
+    <string name="termux_terminal_io_preferences_title">إدخال وإخراج الطرفية</string>
+    <string name="termux_terminal_io_preferences_summary">إعدادات إدخال وإخراج الطرفية</string>
+    <string name="termux_terminal_view_preferences_title">عرض الطرفية</string>
+    <string name="termux_terminal_view_preferences_summary">إعدادات عرض الطرفية</string>
+    <string name="termux_keyboard_header">لوحة المفاتيح</string>
+    <string name="termux_soft_keyboard_enabled_title">تفعيل لوحة المفاتيح</string>
+    <string name="action_new_session">جلسة جديدة</string>
+    <string name="action_new_session_failsafe">الوضع الآمن</string>
+    <string name="action_toggle_soft_keyboard">لوحة المفاتيح</string>
+    <string name="action_open_settings">الإعدادات</string>
+    <string name="action_open_help">المساعدة</string>
+    <string name="action_style_terminal">المظهر</string>
+    <string name="action_kill_process">إنهاء العملية (%d)</string>
+    <string name="action_reset_terminal">إعادة ضبط</string>
+    <string name="action_share_transcript">مشاركة سجل الطرفية</string>
+    <string name="action_share_selected_text">مشاركة النص المحدد</string>
+    <string name="action_select_url">تحديد الرابط</string>
+    <string name="action_toggle_keep_screen_on">إبقاء الشاشة قيد التشغيل</string>
+    <string name="action_report_issue">الإبلاغ عن مشكلة</string>
+    <string name="about_preference_title">حول التطبيق</string>
+    <string name="donate_preference_title">دعم المشروع</string>
+    <string name="bootstrap_installer_body">جارٍ تثبيت الحزم الأساسية…</string>
+    <string name="bootstrap_error_title">تعذر تثبيت الحزم الأساسية</string>
+    <string name="bootstrap_error_abort">إلغاء</string>
+    <string name="bootstrap_error_try_again">إعادة المحاولة</string>
+    <string name="notification_action_exit">خروج</string>
+</resources>

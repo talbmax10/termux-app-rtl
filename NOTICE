@@ -1,0 +1,18 @@
+Termux RTL
+
+This repository is a community-focused build derived from the Termux Android application.
+
+Upstream project:
+https://github.com/termux/termux-app
+
+Native RTL/cursive-shaping work incorporated from:
+Termux pull request #5179
+https://github.com/termux/termux-app/pull/5179
+Author of that pull request: muslim-kh09
+
+This NOTICE does not replace or alter the licenses and copyright notices of
+Termux or any third-party dependency. Those notices remain applicable to the
+corresponding source and binaries.
+
+Project-owned documentation and additions in this repository are provided
+under the MIT License unless a more specific license is stated.

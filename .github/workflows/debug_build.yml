@@ -1,4 +1,4 @@
-name: Build
+name: Build Independent RTL APK
 
 on:
   push:
@@ -13,108 +13,108 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  bootstrap:
+    name: Build custom Termux RTL bootstrap
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        package_variant: [apt-android-7]
+    steps:
+      - name: Clone termux-packages bootstrap builder
+        uses: actions/checkout@v6
+        with:
+          repository: agnostic-apollo/termux-packages
+          ref: infra-improvs
+          path: termux-packages
+          fetch-depth: 1
 
+      - name: Configure independent package name
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^TERMUX_APP_PACKAGE=.*/TERMUX_APP_PACKAGE="com.termux.rtl"/' scripts/properties.sh
+          grep -n '^TERMUX_APP_PACKAGE=' scripts/properties.sh
+
+      - name: Build aarch64 bootstrap
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
+
+      - name: Build remaining bootstraps
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures arm,x86_64,i686
+
+      - name: Collect bootstrap archives
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../bootstrap-artifacts
+          find . -maxdepth 3 -type f -name 'bootstrap-*.zip' -print -exec cp -v {} ../bootstrap-artifacts/ \;
+          test "$(find ../bootstrap-artifacts -maxdepth 1 -type f -name 'bootstrap-*.zip' | wc -l)" -eq 4
+          sha256sum ../bootstrap-artifacts/bootstrap-*.zip
+
+      - name: Upload custom bootstraps
+        uses: actions/upload-artifact@v6
+        with:
+          name: termux-rtl-bootstraps
+          path: bootstrap-artifacts/bootstrap-*.zip
+          if-no-files-found: error
+
+  build:
+    name: Build APKs
+    needs: bootstrap
+    runs-on: ubuntu-latest
     steps:
       - name: Clone repository
         uses: actions/checkout@v6
 
+      - name: Download custom bootstraps
+        uses: actions/download-artifact@v7
+        with:
+          name: termux-rtl-bootstraps
+          path: app/src/main/cpp
+
       - name: Setup java 17
         uses: actions/setup-java@v5
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Build APKs
-        shell: bash {0}
-        env:
-          PACKAGE_VARIANT: ${{ matrix.package_variant }}
+      - name: Prepare independent package build
+        shell: bash
         run: |
           set -euo pipefail
-          exit_on_error() { echo "$1"; exit 1; }
+          bash ./scripts/prepare_independent_build.sh
+          grep -n 'applicationId' app/build.gradle
+          grep -n 'TERMUX_PACKAGE_NAME =' termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java | head -1
+          grep -n 'targetPackage' app/src/main/res/xml/shortcuts.xml
 
-          if [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
-              GITHUB_SHA="${{ github.event.pull_request.head.sha }}"
-          fi
-
-          CURRENT_VERSION_NAME_REGEX='\s+versionName "([^"]+)"$'
-          CURRENT_VERSION_NAME="$(grep -m 1 -E "$CURRENT_VERSION_NAME_REGEX" ./app/build.gradle | sed -r "s/$CURRENT_VERSION_NAME_REGEX/\1/")"
-          RELEASE_VERSION_NAME="v$CURRENT_VERSION_NAME+${GITHUB_SHA:0:7}"
-          if ! printf "%s" "${RELEASE_VERSION_NAME/v/}" | grep -qP '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
-            exit_on_error "Invalid semantic version: ${RELEASE_VERSION_NAME/v/}"
-          fi
-
-          APK_DIR_PATH="./app/build/outputs/apk/debug"
-          APK_VERSION_TAG="$RELEASE_VERSION_NAME-${{ env.PACKAGE_VARIANT }}-github-debug"
-          APK_BASENAME_PREFIX="termux-rtl_$APK_VERSION_TAG"
-          echo "APK_DIR_PATH=$APK_DIR_PATH" >> "$GITHUB_ENV"
-          echo "APK_VERSION_TAG=$APK_VERSION_TAG" >> "$GITHUB_ENV"
-          echo "APK_BASENAME_PREFIX=$APK_BASENAME_PREFIX" >> "$GITHUB_ENV"
-
-          export TERMUX_APP_VERSION_NAME="${RELEASE_VERSION_NAME/v/}"
-          export TERMUX_APK_VERSION_TAG="$APK_VERSION_TAG"
-          export TERMUX_PACKAGE_VARIANT="${{ env.PACKAGE_VARIANT }}"
+      - name: Build APKs
+        shell: bash
+        env:
+          TERMUX_APP_VERSION_NAME: 0.118.0-rtl.1
+          TERMUX_APK_VERSION_TAG: 0.118.0-rtl.1-${{ github.sha }}
+          TERMUX_PACKAGE_VARIANT: apt-android-7
+        run: |
+          set -euo pipefail
           ./gradlew assembleDebug
 
-          for abi in universal arm64-v8a armeabi-v7a x86_64 x86; do
-            test -f "$APK_DIR_PATH/${APK_BASENAME_PREFIX}_$abi.apk" || exit_on_error "Missing APK: $abi"
-          done
+      - name: Verify independent APK package id
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f app/build/outputs/apk/debug/termux-rtl_0.118.0-rtl.1-${GITHUB_SHA}_apt-android-7-universal.apk
+          echo "Independent Termux RTL APKs built successfully"
 
-          (cd "$APK_DIR_PATH"; sha256sum \
-            "${APK_BASENAME_PREFIX}_universal.apk" \
-            "${APK_BASENAME_PREFIX}_arm64-v8a.apk" \
-            "${APK_BASENAME_PREFIX}_armeabi-v7a.apk" \
-            "${APK_BASENAME_PREFIX}_x86_64.apk" \
-            "${APK_BASENAME_PREFIX}_x86.apk" \
-            > "${APK_BASENAME_PREFIX}_sha256sums.txt")
-
-      - name: Upload universal APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_universal
+          name: termux-rtl-apks-${{ github.sha }}
           path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_universal.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Upload arm64-v8a APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_arm64-v8a
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_arm64-v8a.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Upload armeabi-v7a APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_armeabi-v7a
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_armeabi-v7a.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Upload x86_64 APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_x86_64
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86_64.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Upload x86 APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_x86
-          path: |
-            ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_x86.apk
-            ${{ env.APK_DIR_PATH }}/output-metadata.json
-
-      - name: Upload SHA-256 checksums
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_sha256sums
-          path: ${{ env.APK_DIR_PATH }}/${{ env.APK_BASENAME_PREFIX }}_sha256sums.txt
+            app/build/outputs/apk/debug/termux-rtl_*.apk
+            app/build/outputs/apk/debug/output-metadata.json
+          if-no-files-found: error

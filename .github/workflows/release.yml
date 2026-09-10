@@ -45,6 +45,13 @@ jobs:
             echo "=== libunbound pyunbound after patch ==="
             grep -n pyunbound packages/libunbound/build.sh || true
           fi
+          # Fix docbook-xml 404 (docbook.org -> archive.docbook.org)
+          if [ -f packages/docbook-xml/build.sh ]; then
+            sed -i 's|https://docbook.org/xml|https://archive.docbook.org/xml|g' packages/docbook-xml/build.sh || true
+            echo "=== docbook-xml URL after patch ==="
+            grep -n docbook.org packages/docbook-xml/build.sh || true
+            grep -n archive.docbook packages/docbook-xml/build.sh || true
+          fi
           TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
             set -euo pipefail
             source scripts/properties.sh
@@ -105,7 +112,17 @@ jobs:
           docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
           echo "=== Building all 4 bootstraps (clean) ==="
           set -o pipefail
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686 2>&1 | tee bootstrap_build.log
+          # Configure git retries inside container to tolerate transient salsa.debian.org failures
+          ./scripts/run-docker.sh bash -c '
+            set -euo pipefail
+            git config --global http.retry 5 || true
+            git config --global http.lowSpeedLimit 1000 || true
+            git config --global http.lowSpeedTime 30 || true
+            git config --global http.postBuffer 524288000 || true
+            echo "=== git retry config ==="
+            git config --global --list | grep -E "http\.(retry|lowSpeed)" || true
+            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
+          ' 2>&1 | tee bootstrap_build.log
           ls -lh bootstrap-*.zip || true
           find . -maxdepth 2 -name "bootstrap-*.zip" -ls
           cp bootstrap_build.log ../bootstrap_build.log 2>/dev/null || true

@@ -64,6 +64,7 @@ jobs:
           echo "=== Diagnostic inside fresh container $CONTAINER_NAME ==="
           ./scripts/run-docker.sh bash -c '
             set -euo pipefail
+            if [ -f scripts/properties.sh ]; then source scripts/properties.sh; fi
             echo "=== Inside container ==="
             echo "TERMUX_APP__PACKAGE_NAME=${TERMUX_APP__PACKAGE_NAME:-unset}"
             echo "TERMUX_APP_PACKAGE=${TERMUX_APP_PACKAGE:-unset}"
@@ -74,8 +75,8 @@ jobs:
             if [ ! -d "$NDK" ]; then echo "ERROR: NDK not directory $NDK" >&2; ls -la "$(dirname "$NDK")" | head; exit 1; fi
             echo "✓ NDK exists: $NDK"
             cat "$NDK/source.properties" | head -n 20
-            test "$TERMUX_APP__PACKAGE_NAME" = "com.termux.rtl" || { echo "ERROR package"; exit 1; }
-            test "$TERMUX__PREFIX" = "/data/data/com.termux.rtl/files/usr" || { echo "ERROR prefix"; exit 1; }
+            test "$TERMUX_APP__PACKAGE_NAME" = "com.termux.rtl" || { echo "ERROR package $TERMUX_APP__PACKAGE_NAME"; exit 1; }
+            test "$TERMUX__PREFIX" = "/data/data/com.termux.rtl/files/usr" || { echo "ERROR prefix $TERMUX__PREFIX"; exit 1; }
             echo "✓ Isolation verified inside container"
           '
           docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true

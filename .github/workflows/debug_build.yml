@@ -76,9 +76,9 @@ jobs:
           echo "=== Running diagnostic inside fresh container $CONTAINER_NAME from $TERMUX_BUILDER_IMAGE_NAME ==="
           ./scripts/run-docker.sh bash -c '
             set -euo pipefail
+            # Source properties.sh to initialize TERMUX_* env (NDK, PREFIX, PACKAGE)
+            if [ -f scripts/properties.sh ]; then source scripts/properties.sh; fi
             echo "=== Inside container diagnostics ==="
-            echo "CONTAINER_NAME='"$CONTAINER_NAME"'"
-            echo "TERMUX_BUILDER_IMAGE_NAME='"$TERMUX_BUILDER_IMAGE_NAME"'"
             echo "whoami=$(whoami) uid=$(id -u) gid=$(id -g)"
             echo "PWD=$PWD"
             echo "TERMUX_APP__PACKAGE_NAME=${TERMUX_APP__PACKAGE_NAME:-unset}"

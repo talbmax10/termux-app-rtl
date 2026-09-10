@@ -10,17 +10,70 @@ permissions:
   contents: write
 
 jobs:
+  bootstrap:
+    name: Build custom Termux RTL bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone termux-packages bootstrap builder
+        uses: actions/checkout@v6
+        with:
+          repository: agnostic-apollo/termux-packages
+          ref: infra-improvs
+          path: termux-packages
+          fetch-depth: 1
+
+      - name: Configure independent package name
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^TERMUX_APP_PACKAGE=.*/TERMUX_APP_PACKAGE="com.termux.rtl"/' scripts/properties.sh
+
+      - name: Build custom bootstraps
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh
+
+      - name: Collect bootstraps
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../bootstrap-artifacts
+          find . -maxdepth 3 -type f -name 'bootstrap-*.zip' -print -exec cp -v {} ../bootstrap-artifacts/ \;
+          test "$(find ../bootstrap-artifacts -maxdepth 1 -type f -name 'bootstrap-*.zip' | wc -l)" -eq 4
+
+      - name: Upload custom bootstraps
+        uses: actions/upload-artifact@v6
+        with:
+          name: termux-rtl-bootstraps
+          path: bootstrap-artifacts/bootstrap-*.zip
+          if-no-files-found: error
+
   release:
+    needs: bootstrap
     runs-on: ubuntu-latest
     steps:
       - name: Clone repository
         uses: actions/checkout@v6
+
+      - name: Download custom bootstraps
+        uses: actions/download-artifact@v7
+        with:
+          name: termux-rtl-bootstraps
+          path: app/src/main/cpp
 
       - name: Setup java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Prepare independent package build
+        shell: bash
+        run: bash ./scripts/prepare_independent_build.sh
 
       - name: Build release APKs
         shell: bash

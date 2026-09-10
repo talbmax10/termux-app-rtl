@@ -1,0 +1,73 @@
+name: Recover bootstrap log
+
+on:
+  push:
+    branches:
+      - arena/01a08c67-termux-app-rtl
+    paths:
+      - .github/workflows/recover_bootstrap_log.yml
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID to recover (default 34514923798)'
+        required: false
+        default: '34514923798'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine run ID
+        id: rid
+        shell: bash
+        run: |
+          RID="${{ github.event.inputs.run_id }}"
+          if [ -z "$RID" ] || [ "$RID" = "" ]; then RID="34514923798"; fi
+          # If triggered by push, use hardcoded latest failed run
+          if [ "${{ github.event_name }}" = "push" ]; then RID="34514923798"; fi
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+          echo "Recovering run $RID"
+
+      - name: Download bootstrap log artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: bootstrap-build-log-${{ steps.rid.outputs.run_id }}
+          path: /tmp/recovered
+          run-id: ${{ steps.rid.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Show and post log tail
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh /tmp/recovered/ || true
+          find /tmp/recovered -type f | head -n 20
+          LOG="/tmp/recovered/bootstrap_build.log"
+          if [ ! -f "$LOG" ]; then LOG=$(find /tmp/recovered -name "*.log" | head -1); fi
+          if [ ! -f "$LOG" ]; then echo "No log found in /tmp/recovered"; exit 0; fi
+          echo "=== Log size ==="
+          wc -c "$LOG"; wc -l "$LOG"
+          echo "=== Last 500 lines ==="
+          tail -n 500 "$LOG" | head -c 60000 > /tmp/tail.txt
+          cat /tmp/tail.txt
+          echo "=== Posting to PR ==="
+          # Step summary
+          {
+            echo "### Recovered log for run ${{ steps.rid.outputs.run_id }}"
+            echo '```'
+            cat /tmp/tail.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          set +e
+          PR_NUMBER="1"
+          if gh pr comment "$PR_NUMBER" --body-file /tmp/tail.txt 2>&1 | head -n 50; then echo "posted via gh pr comment"; else gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --method POST -F body=@/tmp/tail.txt 2>&1 | head -n 20 || echo "post failed"; fi
+          exit 0
+

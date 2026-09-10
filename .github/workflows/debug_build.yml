@@ -162,22 +162,24 @@ jobs:
           tail -n 400 "$LOG_FILE" | head -c 60000 > /tmp/log_tail.txt
           cat /tmp/log_tail.txt
           # Also print to step summary (visible in Actions UI without blob)
-          echo "### Bootstrap build log tail" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/log_tail.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          # Try to post to PR if this is a pull_request
+          {
+            echo "### Bootstrap build log tail"
+            echo '```'
+            cat /tmp/log_tail.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          # Try to post to PR if this is a pull_request (never fail the job)
+          set +e
           PR_NUMBER="${{ github.event.pull_request.number }}"
           if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "" ]; then
             echo "Posting log tail to PR #$PR_NUMBER via gh pr comment"
-            gh pr comment "$PR_NUMBER" --body-file /tmp/log_tail.txt 2>&1 | head -n 50 || echo "gh pr comment failed, trying gh api"
-            # Fallback gh api
-            gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --method POST --raw-field body="$(head -c 60000 /tmp/log_tail.txt | sed 's/"/\\"/g' | head -c 60000)" 2>&1 | head -n 20 || echo "gh api comment also failed"
+            if gh pr comment "$PR_NUMBER" --body-file /tmp/log_tail.txt 2>&1 | head -n 100; then echo "✓ Posted via gh pr comment"; else echo "gh pr comment failed, trying gh api -F"; gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --method POST -F body=@/tmp/log_tail.txt 2>&1 | head -n 20 || echo "gh api also failed, continuing"; fi
+            set +e
           else
             echo "Not a PR event, PR_NUMBER empty - skipping PR comment"
           fi
-          # Always also output to stderr for job logs (which are on blob, but step summary is alternative)
           echo "=== End log tail ==="
+          exit 0
 
 
 

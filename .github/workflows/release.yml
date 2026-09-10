@@ -38,6 +38,13 @@ jobs:
             echo "=== foot SHA after patch ==="
             grep -n TERMUX_PKG_SHA256 x11-packages/foot/build.sh || true
           fi
+          # Fix libunbound 1.23.1 SWIG/python build failure (libunbound_wrap.c $function error)
+          # Disable pyunbound to avoid building the broken Python wrapper
+          if [ -f packages/libunbound/build.sh ]; then
+            sed -i 's/--with-pyunbound/--without-pyunbound/' packages/libunbound/build.sh || true
+            echo "=== libunbound pyunbound after patch ==="
+            grep -n pyunbound packages/libunbound/build.sh || true
+          fi
           TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
             set -euo pipefail
             source scripts/properties.sh

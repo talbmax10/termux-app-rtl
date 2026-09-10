@@ -119,11 +119,23 @@ jobs:
           set -euo pipefail
           docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
           echo "=== Building all 4 bootstraps in single invocation (clean build) ==="
-          # Single invocation ensures output dir and prefix are handled correctly without deleting earlier zips
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
+          # Capture full bootstrap build log for diagnostics (workaround for blocked blob logs)
+          set -o pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686 2>&1 | tee bootstrap_build.log
           echo "=== Bootstrap build finished ==="
           ls -lh bootstrap-*.zip 2>&1 | head -n 20 || true
           find . -maxdepth 2 -name "bootstrap-*.zip" -ls
+          cp bootstrap_build.log ../bootstrap_build.log 2>/dev/null || cp bootstrap_build.log bootstrap_build.log 2>/dev/null || true
+
+      - name: Upload bootstrap build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bootstrap-build-log-${{ github.run_id }}
+          path: |
+            termux-packages/bootstrap_build.log
+            bootstrap_build.log
+          if-no-files-found: warn
 
       - name: Collect and verify bootstrap archives
         working-directory: termux-packages

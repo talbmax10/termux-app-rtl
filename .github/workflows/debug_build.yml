@@ -33,25 +33,20 @@ jobs:
           sed -i 's/^TERMUX_APP_PACKAGE=.*/TERMUX_APP_PACKAGE="com.termux.rtl"/' scripts/properties.sh
           grep -n '^TERMUX_APP_PACKAGE=' scripts/properties.sh
 
-      - name: Install Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'ndk;27.2.12479018'
-
-      - name: Export Android NDK path
+      - name: Build matching Termux package-builder image
+        working-directory: termux-packages
         shell: bash
         run: |
           set -euo pipefail
-          NDK_DIR="$ANDROID_HOME/ndk/27.2.12479018"
-          test -d "$NDK_DIR"
-          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK=$NDK_DIR" >> "$GITHUB_ENV"
-          echo "NDK=$NDK_DIR" >> "$GITHUB_ENV"
-          echo "Configured NDK: $NDK_DIR"
+          docker build -t termux-rtl-package-builder ./scripts
+          docker image inspect termux-rtl-package-builder >/dev/null
 
       - name: Build aarch64 bootstrap
         working-directory: termux-packages
         shell: bash
+        env:
+          TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-package-builder
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
@@ -59,6 +54,9 @@ jobs:
       - name: Build remaining bootstraps
         working-directory: termux-packages
         shell: bash
+        env:
+          TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-package-builder
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures arm,x86_64,i686

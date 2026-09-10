@@ -42,6 +42,13 @@ jobs:
           echo "=== properties.sh after patch ==="
           grep -n '^TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh
           grep -n '^TERMUX_APP_PACKAGE=' scripts/properties.sh
+          # Fix known upstream checksum mismatch for foot 1.23.1 (codeberg archive changed)
+          # infra-improvs expects 02072b... but actual download is b3fa77...
+          if [ -f x11-packages/foot/build.sh ]; then
+            sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh || true
+            echo "=== foot SHA after patch ==="
+            grep -n TERMUX_PKG_SHA256 x11-packages/foot/build.sh || true
+          fi
           # Verify derived paths are correct for isolated package
           TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
             set -euo pipefail

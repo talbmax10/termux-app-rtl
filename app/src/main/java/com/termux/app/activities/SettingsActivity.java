@@ -6,6 +6,8 @@ import android.os.Environment;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
+import androidx.core.os.LocaleListCompat;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
@@ -59,6 +61,7 @@ public class SettingsActivity extends AppCompatActivity {
             if (context == null) return;
 
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
+            configureLanguagePreference();
 
             new Thread() {
                 @Override
@@ -73,39 +76,45 @@ public class SettingsActivity extends AppCompatActivity {
             }.start();
         }
 
+        private void configureLanguagePreference() {
+            Preference language = findPreference("language");
+            if (language == null) return;
+            language.setOnPreferenceClickListener(preference -> {
+                AppCompatDelegate.setApplicationLocales(
+                    LocaleListCompat.forLanguageTags("ar"));
+                return true;
+            });
+        }
+
         private void configureTermuxAPIPreference(@NonNull Context context) {
-            Preference termuxAPIPreference = findPreference("termux_api");
-            if (termuxAPIPreference != null) {
+            Preference preference = findPreference("termux_api");
+            if (preference != null) {
                 TermuxAPIAppSharedPreferences preferences = TermuxAPIAppSharedPreferences.build(context, false);
-                // If failed to get app preferences, then likely app is not installed, so do not show its preference
-                termuxAPIPreference.setVisible(preferences != null);
+                preference.setVisible(preferences != null);
             }
         }
 
         private void configureTermuxFloatPreference(@NonNull Context context) {
-            Preference termuxFloatPreference = findPreference("termux_float");
-            if (termuxFloatPreference != null) {
+            Preference preference = findPreference("termux_float");
+            if (preference != null) {
                 TermuxFloatAppSharedPreferences preferences = TermuxFloatAppSharedPreferences.build(context, false);
-                // If failed to get app preferences, then likely app is not installed, so do not show its preference
-                termuxFloatPreference.setVisible(preferences != null);
+                preference.setVisible(preferences != null);
             }
         }
 
         private void configureTermuxTaskerPreference(@NonNull Context context) {
-            Preference termuxTaskerPreference = findPreference("termux_tasker");
-            if (termuxTaskerPreference != null) {
+            Preference preference = findPreference("termux_tasker");
+            if (preference != null) {
                 TermuxTaskerAppSharedPreferences preferences = TermuxTaskerAppSharedPreferences.build(context, false);
-                // If failed to get app preferences, then likely app is not installed, so do not show its preference
-                termuxTaskerPreference.setVisible(preferences != null);
+                preference.setVisible(preferences != null);
             }
         }
 
         private void configureTermuxWidgetPreference(@NonNull Context context) {
-            Preference termuxWidgetPreference = findPreference("termux_widget");
-            if (termuxWidgetPreference != null) {
+            Preference preference = findPreference("termux_widget");
+            if (preference != null) {
                 TermuxWidgetAppSharedPreferences preferences = TermuxWidgetAppSharedPreferences.build(context, false);
-                // If failed to get app preferences, then likely app is not installed, so do not show its preference
-                termuxWidgetPreference.setVisible(preferences != null);
+                preference.setVisible(preferences != null);
             }
         }
 
@@ -117,25 +126,20 @@ public class SettingsActivity extends AppCompatActivity {
                         @Override
                         public void run() {
                             String title = "About";
-
                             StringBuilder aboutString = new StringBuilder();
                             aboutString.append(TermuxUtils.getAppInfoMarkdownString(context, TermuxUtils.AppInfoMode.TERMUX_AND_PLUGIN_PACKAGES));
                             aboutString.append("\n\n").append(AndroidUtils.getDeviceInfoMarkdownString(context, true));
                             aboutString.append("\n\n").append(TermuxUtils.getImportantLinksMarkdownString(context));
-
                             String userActionName = UserAction.ABOUT.getName();
-
                             ReportInfo reportInfo = new ReportInfo(userActionName,
                                 TermuxConstants.TERMUX_APP.TERMUX_SETTINGS_ACTIVITY_NAME, title);
                             reportInfo.setReportString(aboutString.toString());
                             reportInfo.setReportSaveFileLabelAndPath(userActionName,
                                 Environment.getExternalStorageDirectory() + "/" +
                                     FileUtils.sanitizeFileName(TermuxConstants.TERMUX_APP_NAME + "-" + userActionName + ".log", true, true));
-
                             ReportActivity.startReportActivity(context, reportInfo);
                         }
                     }.start();
-
                     return true;
                 });
             }
@@ -144,12 +148,9 @@ public class SettingsActivity extends AppCompatActivity {
         private void configureDonatePreference(@NonNull Context context) {
             Preference donatePreference = findPreference("donate");
             if (donatePreference != null) {
-                String signingCertificateSHA256Digest = PackageUtils.getSigningCertificateSHA256DigestForPackage(context);
-                if (signingCertificateSHA256Digest != null) {
-                    // If APK is a Google Playstore release, then do not show the donation link
-                    // since Termux isn't exempted from the playstore policy donation links restriction
-                    // Check Fund solicitations: https://pay.google.com/intl/en_in/about/policy/
-                    String apkRelease = TermuxUtils.getAPKRelease(signingCertificateSHA256Digest);
+                String digest = PackageUtils.getSigningCertificateSHA256DigestForPackage(context);
+                if (digest != null) {
+                    String apkRelease = TermuxUtils.getAPKRelease(digest);
                     if (apkRelease == null || apkRelease.equals(TermuxConstants.APK_RELEASE_GOOGLE_PLAYSTORE_SIGNING_CERTIFICATE_SHA256_DIGEST)) {
                         donatePreference.setVisible(false);
                         return;
@@ -157,7 +158,6 @@ public class SettingsActivity extends AppCompatActivity {
                         donatePreference.setVisible(true);
                     }
                 }
-
                 donatePreference.setOnPreferenceClickListener(preference -> {
                     ShareUtils.openUrl(context, TermuxConstants.TERMUX_DONATE_URL);
                     return true;
@@ -165,5 +165,4 @@ public class SettingsActivity extends AppCompatActivity {
             }
         }
     }
-
 }

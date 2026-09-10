@@ -158,8 +158,9 @@ jobs:
           LOG_FILE="termux-packages/bootstrap_build.log"
           if [ ! -f "$LOG_FILE" ]; then LOG_FILE="bootstrap_build.log"; fi
           if [ ! -f "$LOG_FILE" ]; then echo "No log file found"; exit 0; fi
-          echo "=== Last 400 lines of bootstrap_build.log ==="
-          tail -n 400 "$LOG_FILE" | head -c 60000 > /tmp/log_tail.txt
+          echo "=== Last 400 lines of bootstrap_build.log (last 60000 bytes) ==="
+          tail -n 400 "$LOG_FILE" > /tmp/log_tail_full.txt
+          if [ $(wc -c < /tmp/log_tail_full.txt) -gt 60000 ]; then tail -c 60000 /tmp/log_tail_full.txt > /tmp/log_tail.txt; else cp /tmp/log_tail_full.txt /tmp/log_tail.txt; fi
           cat /tmp/log_tail.txt
           # Also print to step summary (visible in Actions UI without blob)
           {

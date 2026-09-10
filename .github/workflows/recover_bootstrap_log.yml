@@ -53,8 +53,10 @@ jobs:
           if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then echo "No log found in /tmp/recovered"; ls -R /tmp/recovered || true; exit 0; fi
           echo "=== Log size ==="
           wc -c "$LOG" || true; wc -l "$LOG" || true
-          echo "=== Last 500 lines ==="
-          tail -n 500 "$LOG" | head -c 60000 > /tmp/tail.txt || true
+          echo "=== Last 500 lines (last 60000 bytes) ==="
+          tail -n 500 "$LOG" > /tmp/tail_full.txt || true
+          # Keep last 60000 bytes to fit GitHub comment limit
+          if [ $(wc -c < /tmp/tail_full.txt) -gt 60000 ]; then tail -c 60000 /tmp/tail_full.txt > /tmp/tail.txt; else cp /tmp/tail_full.txt /tmp/tail.txt; fi
           cat /tmp/tail.txt || true
           echo "=== Posting to PR via step summary ==="
           {

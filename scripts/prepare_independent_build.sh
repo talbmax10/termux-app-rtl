@@ -16,7 +16,7 @@ app = sys.argv[3]
 # data/IPC package are changed; this avoids breaking the upstream source tree.
 gradle = root / "app/build.gradle"
 s = gradle.read_text()
-if 'applicationId "com.termux.rtl"' not in s:
+if 'independentApplicationId' not in s and 'applicationId "com.termux.rtl"' not in s:
     s = s.replace('defaultConfig {\n', f'def independentApplicationId = "{pkg}"\n\n    defaultConfig {{\n        applicationId independentApplicationId\n', 1)
 s = s.replace('manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"', f'manifestPlaceholders.TERMUX_PACKAGE_NAME = "{pkg}"')
 s = s.replace('manifestPlaceholders.TERMUX_APP_NAME = "Termux RTL"', f'manifestPlaceholders.TERMUX_APP_NAME = "{app}"')
@@ -26,10 +26,13 @@ gradle.write_text(s)
 # names are derived from it by TermuxConstants.
 constants = root / "termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java"
 s = constants.read_text()
-s, n = re.subn(r'(public static final String TERMUX_PACKAGE_NAME = )"com\\.termux";', r'\1"com.termux.rtl";', s, count=1)
-if n != 1:
-    raise SystemExit("TERMUX_PACKAGE_NAME constant was not found exactly once")
-constants.write_text(s)
+if '"com.termux.rtl"' in s:
+    pass  # already patched, idempotent
+else:
+    s, n = re.subn(r'(public static final String TERMUX_PACKAGE_NAME = )"com\.termux";', r'\1"com.termux.rtl";', s, count=1)
+    if n != 1:
+        raise SystemExit("TERMUX_PACKAGE_NAME constant was not found exactly once")
+    constants.write_text(s)
 
 for rel in ("app/src/main/res/values/strings.xml", "termux-shared/src/main/res/values/strings.xml"):
     p = root / rel

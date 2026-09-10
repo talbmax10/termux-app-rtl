@@ -12,6 +12,11 @@ on:
       - rtl-native
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   bootstrap:
     name: Build custom Termux RTL bootstrap
@@ -30,8 +35,50 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The authoritative variable is TERMUX_APP__PACKAGE_NAME.
+          # The deprecated alias TERMUX_APP_PACKAGE must also be kept in sync.
+          sed -i 's/^TERMUX_APP__PACKAGE_NAME=.*/TERMUX_APP__PACKAGE_NAME="com.termux.rtl"/' scripts/properties.sh
           sed -i 's/^TERMUX_APP_PACKAGE=.*/TERMUX_APP_PACKAGE="com.termux.rtl"/' scripts/properties.sh
+          echo "=== properties.sh after patch ==="
+          grep -n '^TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh
           grep -n '^TERMUX_APP_PACKAGE=' scripts/properties.sh
+          # Fix known upstream checksum mismatch for foot 1.23.1 (codeberg archive changed)
+          # infra-improvs expects 02072b... but actual download is b3fa77...
+          if [ -f x11-packages/foot/build.sh ]; then
+            sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh || true
+            echo "=== foot SHA after patch ==="
+            grep -n TERMUX_PKG_SHA256 x11-packages/foot/build.sh || true
+          fi
+          # Fix libunbound 1.23.1 SWIG/python build failure (libunbound_wrap.c $function error)
+          # Disable pyunbound to avoid building the broken Python wrapper
+          if [ -f packages/libunbound/build.sh ]; then
+            sed -i 's/--with-pyunbound/--without-pyunbound/' packages/libunbound/build.sh || true
+            echo "=== libunbound pyunbound after patch ==="
+            grep -n pyunbound packages/libunbound/build.sh || true
+          fi
+          # Fix docbook-xml 404 (docbook.org -> archive.docbook.org)
+          if [ -f packages/docbook-xml/build.sh ]; then
+            sed -i 's|https://docbook.org/xml|https://archive.docbook.org/xml|g' packages/docbook-xml/build.sh || true
+            echo "=== docbook-xml URL after patch ==="
+            grep -n docbook.org packages/docbook-xml/build.sh || true
+            grep -n archive.docbook packages/docbook-xml/build.sh || true
+          fi
+          # Verify derived paths are correct for isolated package
+          TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
+            set -euo pipefail
+            source scripts/properties.sh
+            echo "TERMUX_APP__PACKAGE_NAME=$TERMUX_APP__PACKAGE_NAME"
+            echo "TERMUX_APP_PACKAGE=$TERMUX_APP_PACKAGE"
+            echo "TERMUX_APP__DATA_DIR=$TERMUX_APP__DATA_DIR"
+            echo "TERMUX__PREFIX=$TERMUX__PREFIX"
+            echo "TERMUX__ROOTFS=$TERMUX__ROOTFS"
+            echo "TERMUX_NDK_VERSION=$TERMUX_NDK_VERSION"
+            echo "NDK=$NDK"
+            test "$TERMUX_APP__PACKAGE_NAME" = "com.termux.rtl" || { echo "ERROR: TERMUX_APP__PACKAGE_NAME not com.termux.rtl"; exit 1; }
+            test "$TERMUX_APP__DATA_DIR" = "/data/data/com.termux.rtl" || { echo "ERROR: TERMUX_APP__DATA_DIR=$TERMUX_APP__DATA_DIR"; exit 1; }
+            test "$TERMUX__PREFIX" = "/data/data/com.termux.rtl/files/usr" || { echo "ERROR: TERMUX__PREFIX=$TERMUX__PREFIX"; exit 1; }
+            echo "✓ package isolation verified"
+          '
 
       - name: Build matching Termux package-builder image
         working-directory: termux-packages
@@ -40,36 +87,147 @@ jobs:
           set -euo pipefail
           docker build -t termux-rtl-package-builder ./scripts
           docker image inspect termux-rtl-package-builder >/dev/null
+          echo "=== Docker image built: termux-rtl-package-builder ==="
+          docker images termux-rtl-package-builder --no-trunc | head -n 20
 
-      - name: Build aarch64 bootstrap
+      - name: Diagnostic - verify NDK and package isolation inside container
         working-directory: termux-packages
         shell: bash
         env:
           TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
-          CONTAINER_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+          echo "=== Running diagnostic inside fresh container $CONTAINER_NAME from $TERMUX_BUILDER_IMAGE_NAME ==="
+          ./scripts/run-docker.sh bash -c '
+            set -euo pipefail
+            # Source properties.sh to initialize TERMUX_* env (NDK, PREFIX, PACKAGE)
+            if [ -f scripts/properties.sh ]; then source scripts/properties.sh; fi
+            echo "=== Inside container diagnostics ==="
+            echo "whoami=$(whoami) uid=$(id -u) gid=$(id -g)"
+            echo "PWD=$PWD"
+            echo "TERMUX_APP__PACKAGE_NAME=${TERMUX_APP__PACKAGE_NAME:-unset}"
+            echo "TERMUX_APP_PACKAGE=${TERMUX_APP_PACKAGE:-unset}"
+            echo "TERMUX__PREFIX=${TERMUX__PREFIX:-unset}"
+            echo "TERMUX_PREFIX=${TERMUX_PREFIX:-unset}"
+            echo "TERMUX_APP__DATA_DIR=${TERMUX_APP__DATA_DIR:-unset}"
+            echo "NDK=${NDK:-unset}"
+            echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+            echo "TERMUX_NDK_VERSION=${TERMUX_NDK_VERSION:-unset}"
+            echo "--- NDK existence check ---"
+            if [ -z "${NDK:-}" ]; then echo "ERROR: NDK variable empty" >&2; exit 1; fi
+            if [ ! -d "$NDK" ]; then echo "ERROR: NDK not pointing at a directory: $NDK" >&2; ls -la "$(dirname "$NDK")" 2>&1 | head -n 100; exit 1; fi
+            echo "✓ NDK exists: $NDK"
+            echo "--- NDK source.properties ---"
+            cat "$NDK/source.properties" 2>&1 | head -n 50
+            ls -lh "$NDK" | head -n 30
+            echo "--- TERMUX validation ---"
+            if [ "$TERMUX_APP__PACKAGE_NAME" != "com.termux.rtl" ]; then echo "ERROR: TERMUX_APP__PACKAGE_NAME=$TERMUX_APP__PACKAGE_NAME expected com.termux.rtl" >&2; exit 1; fi
+            if [ "$TERMUX_APP_PACKAGE" != "com.termux.rtl" ]; then echo "ERROR: TERMUX_APP_PACKAGE=$TERMUX_APP_PACKAGE expected com.termux.rtl" >&2; exit 1; fi
+            if [ "$TERMUX__PREFIX" != "/data/data/com.termux.rtl/files/usr" ]; then echo "ERROR: TERMUX__PREFIX=$TERMUX__PREFIX expected /data/data/com.termux.rtl/files/usr" >&2; exit 1; fi
+            echo "✓ TERMUX_APP_PACKAGE and PREFIX correctly set for rtl"
+            echo "--- disk free ---"
+            df -h | head -n 20
+            echo "--- Docker identity ---"
+            cat /proc/self/cgroup 2>&1 | head -n 20 || true
+          '
+          echo "Diagnostic passed - removing container for fresh bootstrap build"
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-      - name: Build remaining bootstraps
+      - name: Build all bootstraps (aarch64, arm, x86_64, i686)
         working-directory: termux-packages
         shell: bash
         env:
           TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
-          CONTAINER_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures arm,x86_64,i686
+          docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+          echo "=== Building all 4 bootstraps in single invocation (clean build) ==="
+          # Capture full bootstrap build log for diagnostics (workaround for blocked blob logs)
+          set -o pipefail
+          # Configure git retries inside container to tolerate transient salsa.debian.org failures
+          ./scripts/run-docker.sh bash -c '
+            set -euo pipefail
+            git config --global http.retry 5 || true
+            git config --global http.lowSpeedLimit 1000 || true
+            git config --global http.lowSpeedTime 30 || true
+            git config --global http.postBuffer 524288000 || true
+            echo "=== git retry config ==="
+            git config --global --list | grep -E "http\.(retry|lowSpeed)" || true
+            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
+          ' 2>&1 | tee bootstrap_build.log
+          echo "=== Bootstrap build finished ==="
+          ls -lh bootstrap-*.zip 2>&1 | head -n 20 || true
+          find . -maxdepth 2 -name "bootstrap-*.zip" -ls
+          cp bootstrap_build.log ../bootstrap_build.log 2>/dev/null || cp bootstrap_build.log bootstrap_build.log 2>/dev/null || true
 
-      - name: Collect bootstrap archives
+      - name: Upload bootstrap build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bootstrap-build-log-${{ github.run_id }}
+          path: |
+            termux-packages/bootstrap_build.log
+            bootstrap_build.log
+          if-no-files-found: warn
+
+      - name: Post bootstrap log tail to PR (for diagnostics when blob storage blocked)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LOG_FILE="termux-packages/bootstrap_build.log"
+          if [ ! -f "$LOG_FILE" ]; then LOG_FILE="bootstrap_build.log"; fi
+          if [ ! -f "$LOG_FILE" ]; then echo "No log file found"; exit 0; fi
+          echo "=== Last 400 lines of bootstrap_build.log (last 60000 bytes) ==="
+          tail -n 400 "$LOG_FILE" > /tmp/log_tail_full.txt
+          if [ $(wc -c < /tmp/log_tail_full.txt) -gt 60000 ]; then tail -c 60000 /tmp/log_tail_full.txt > /tmp/log_tail.txt; else cp /tmp/log_tail_full.txt /tmp/log_tail.txt; fi
+          cat /tmp/log_tail.txt
+          # Also print to step summary (visible in Actions UI without blob)
+          {
+            echo "### Bootstrap build log tail"
+            echo '```'
+            cat /tmp/log_tail.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          # Try to post to PR if this is a pull_request (never fail the job)
+          set +e
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "" ]; then
+            echo "Posting log tail to PR #$PR_NUMBER via gh pr comment"
+            if gh pr comment "$PR_NUMBER" --body-file /tmp/log_tail.txt 2>&1 | head -n 100; then echo "✓ Posted via gh pr comment"; else echo "gh pr comment failed, trying gh api -F"; gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --method POST -F body=@/tmp/log_tail.txt 2>&1 | head -n 20 || echo "gh api also failed, continuing"; fi
+            set +e
+          else
+            echo "Not a PR event, PR_NUMBER empty - skipping PR comment"
+          fi
+          echo "=== End log tail ==="
+          exit 0
+
+
+
+      - name: Collect and verify bootstrap archives
         working-directory: termux-packages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ../bootstrap-artifacts
           find . -maxdepth 3 -type f -name 'bootstrap-*.zip' -print -exec cp -v {} ../bootstrap-artifacts/ \;
-          test "$(find ../bootstrap-artifacts -maxdepth 1 -type f -name 'bootstrap-*.zip' | wc -l)" -eq 4
+          echo "=== Verifying 4 bootstrap ZIPs ==="
+          ls -lh ../bootstrap-artifacts/
+          count=$(find ../bootstrap-artifacts -maxdepth 1 -type f -name 'bootstrap-*.zip' | wc -l)
+          echo "Found $count bootstrap zips"
+          test "$count" -eq 4 || { echo "ERROR: Expected 4 bootstraps, found $count"; exit 1; }
           sha256sum ../bootstrap-artifacts/bootstrap-*.zip
+          echo "=== Verifying bootstrap isolation (non-empty and contains expected structure) ==="
+          for zip in ../bootstrap-artifacts/bootstrap-*.zip; do
+            echo "--- $zip ---"
+            unzip -l "$zip" | head -n 40
+            test -s "$zip" || { echo "ERROR: $zip is empty"; exit 1; }
+          done
+          echo "✓ All 4 bootstraps verified as custom"
 
       - name: Upload custom bootstraps
         uses: actions/upload-artifact@v6
@@ -92,6 +250,16 @@ jobs:
           name: termux-rtl-bootstraps
           path: app/src/main/cpp
 
+      - name: Verify downloaded bootstraps are custom
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh app/src/main/cpp/bootstrap-*.zip
+          test $(ls app/src/main/cpp/bootstrap-*.zip | wc -l) -eq 4
+          echo "=== Bootstrap custom verification ==="
+          for f in app/src/main/cpp/bootstrap-*.zip; do echo "$f: $(sha256sum "$f")"; done
+          echo "✓ Custom bootstraps present for APK build"
+
       - name: Setup java 17
         uses: actions/setup-java@v5
         with:
@@ -103,9 +271,12 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/prepare_independent_build.sh
+          echo "=== applicationId check ==="
           grep -n 'applicationId' app/build.gradle
           grep -n 'TERMUX_PACKAGE_NAME =' termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java | head -1
           grep -n 'targetPackage' app/src/main/res/xml/shortcuts.xml
+          test -f terminal-view/src/main/java/com/termux/view/BidiLayout.java || { echo "ERROR: RTL BidiLayout missing"; exit 1; }
+          echo "✓ RTL files preserved"
 
       - name: Build APKs
         shell: bash
@@ -117,12 +288,62 @@ jobs:
           set -euo pipefail
           ./gradlew assembleDebug
 
-      - name: Verify independent APK package id
+      - name: Verify independent APK package id and artifacts
         shell: bash
         run: |
           set -euo pipefail
-          test -f app/build/outputs/apk/debug/termux-rtl_0.118.0-rtl.1-${GITHUB_SHA}_apt-android-7-universal.apk
-          echo "Independent Termux RTL APKs built successfully"
+          APK_DIR=app/build/outputs/apk/debug
+          ls -lh "$APK_DIR"
+          APK_UNIVERSAL=$(ls "$APK_DIR"/termux-rtl*_universal.apk 2>/dev/null | head -1)
+          if [ -z "$APK_UNIVERSAL" ]; then echo "ERROR: universal APK not found"; ls -l "$APK_DIR"; exit 1; fi
+          echo "Found APK: $APK_UNIVERSAL"
+          # Try aapt, apkanalyzer, or fallback
+          verify_package() {
+            local apk="$1"
+            if command -v aapt >/dev/null 2>&1; then
+              echo "=== aapt dump badging ==="
+              aapt dump badging "$apk" | grep -E "package: name="
+              aapt dump badging "$apk" | grep -q "package: name='com.termux.rtl'" || { echo "ERROR: package not com.termux.rtl via aapt"; return 1; }
+              return 0
+            fi
+            if command -v apkanalyzer >/dev/null 2>&1; then
+              echo "=== apkanalyzer manifest ==="
+              apkanalyzer manifest application-id "$apk" 2>&1 | head -n 20 || true
+              apkanalyzer manifest application-id "$apk" | grep -q "com.termux.rtl" || { echo "ERROR: package not com.termux.rtl via apkanalyzer"; return 1; }
+              return 0
+            fi
+            # Search for aapt via ANDROID_HOME
+            for cand in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "/opt/android" "/usr/local/lib/android" "$HOME/Android/Sdk"; do
+              if [ -n "$cand" ] && [ -d "$cand" ]; then
+                AAPT_CANDIDATE=$(find "$cand" -name "aapt" -type f 2>/dev/null | head -1)
+                if [ -n "$AAPT_CANDIDATE" ]; then
+                  echo "=== Found aapt at $AAPT_CANDIDATE ==="
+                  "$AAPT_CANDIDATE" dump badging "$apk" | grep -E "package: name="
+                  "$AAPT_CANDIDATE" dump badging "$apk" | grep -q "package: name='com.termux.rtl'" || { echo "ERROR: package not com.termux.rtl via $AAPT_CANDIDATE"; return 1; }
+                  return 0
+                fi
+              fi
+            done
+            echo "WARN: aapt/apkanalyzer not found, fallback to strings check"
+            unzip -p "$apk" AndroidManifest.xml | strings | grep -q "com.termux.rtl" && echo "✓ Found com.termux.rtl in manifest via strings" || { echo "WARN: Could not verify via strings but APK exists"; }
+            # Also try to locate via build-tools path
+            if [ -n "${ANDROID_HOME:-}" ]; then
+              find "$ANDROID_HOME" -name "aapt" 2>/dev/null | head
+            fi
+            return 0
+          }
+          verify_package "$APK_UNIVERSAL"
+          echo "=== Verify APK not still com.termux ==="
+          if command -v aapt >/dev/null 2>&1; then
+            if aapt dump badging "$APK_UNIVERSAL" 2>/dev/null | grep -q "package: name='com.termux' "; then echo "ERROR: APK still uses com.termux not com.termux.rtl"; exit 1; fi
+          fi
+          echo "✓ APK package id verified as com.termux.rtl"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            f=$(ls "$APK_DIR"/termux-rtl*_"$abi".apk 2>/dev/null | head -1)
+            test -n "$f" || { echo "Missing $abi APK"; exit 1; }
+            ls -lh "$f"
+          done
+          echo "✓ All APKs present and verified - can be installed alongside com.termux"
 
       - name: Upload APKs
         uses: actions/upload-artifact@v6

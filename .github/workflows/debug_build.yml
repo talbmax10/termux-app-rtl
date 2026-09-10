@@ -33,6 +33,22 @@ jobs:
           sed -i 's/^TERMUX_APP_PACKAGE=.*/TERMUX_APP_PACKAGE="com.termux.rtl"/' scripts/properties.sh
           grep -n '^TERMUX_APP_PACKAGE=' scripts/properties.sh
 
+      - name: Install Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+
+      - name: Export Android NDK path
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_DIR="$ANDROID_HOME/ndk/27.2.12479018"
+          test -d "$NDK_DIR"
+          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "NDK=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "Configured NDK: $NDK_DIR"
+
       - name: Build aarch64 bootstrap
         working-directory: termux-packages
         shell: bash

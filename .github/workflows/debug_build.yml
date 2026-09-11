@@ -156,7 +156,8 @@ jobs:
             git config --global http.postBuffer 524288000 || true
             echo "=== git retry config ==="
             git config --global --list | grep -E "http\.(retry|lowSpeed)" || true
-            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
+            # Add zile package needed by command-not-found alternatives
+            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686 --packages-post-additional zile
           ' 2>&1 | tee bootstrap_build.log
           echo "=== Bootstrap build finished ==="
           ls -lh bootstrap-*.zip 2>&1 | head -n 20 || true

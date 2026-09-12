@@ -2,9 +2,6 @@
 set -euo pipefail
 
 # Prepare agnostic-apollo/termux-packages for a standalone Termux RTL bootstrap.
-# This script intentionally lives outside the workflow so the shell edits are
-# testable and cannot be corrupted by YAML indentation.
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKGS="${1:-$ROOT/../termux-packages}"
 PROPS="$PKGS/scripts/properties.sh"
@@ -28,8 +25,6 @@ from pathlib import Path
 import re, sys
 p = Path(sys.argv[1])
 s = p.read_text()
-# Remove only the command-not-found/proot selection block. Match by its
-# distinctive condition plus the command-not-found reference, not whitespace.
 pattern = re.compile(
     r'(?ms)^\s*if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then\n'
     r'(?:(?!^\s*fi\s*$).)*?'
@@ -41,15 +36,14 @@ for m in pattern.finditer(s):
         match = m
         break
 if match:
-    replacement = '''\t\t# command-not-found pulls in heavy optional dependencies and can\n\t\t# create a circular dependency during bootstrap construction.\n\t\t# Keep the bootstrap minimal and always include proot.\n\t\tPACKAGES_LIST+=("proot")'''
+    replacement = '''\t\t# Omit command-not-found from the bootstrap because it pulls in heavy\n\t\t# optional dependencies and can create a circular dependency.\n\t\tPACKAGES_LIST+=("proot")'''
     s = s[:match.start()] + replacement + s[match.end():]
-# Defensive cleanup in case the upstream block format changes slightly.
 s = s.replace('PACKAGES_LIST+=("command-not-found")', '')
 p.write_text(s)
 PY
 
-if grep -n 'command-not-found' "$BOOTSTRAP"; then
-  echo 'ERROR: command-not-found still present in bootstrap builder' >&2
+if grep -Fq 'PACKAGES_LIST+=("command-not-found")' "$BOOTSTRAP"; then
+  echo 'ERROR: command-not-found package entry still present' >&2
   exit 1
 fi
 bash -n "$BOOTSTRAP"

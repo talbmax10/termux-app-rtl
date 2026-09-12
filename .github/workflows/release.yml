@@ -52,6 +52,10 @@ jobs:
             grep -n docbook.org packages/docbook-xml/build.sh || true
             grep -n archive.docbook packages/docbook-xml/build.sh || true
           fi
+          # Remove command-not-found from bootstrap packages (circular dependency via zile -> valac -> graphviz)
+          sed -i '/PACKAGES_LIST+=("command-not-found")/d' scripts/build-bootstraps.sh
+          echo "=== command-not-found removed from bootstrap ==="
+          grep -n command-not-found scripts/build-bootstraps.sh || echo "Not found (expected)"
           TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
             set -euo pipefail
             source scripts/properties.sh
@@ -121,9 +125,7 @@ jobs:
             git config --global http.postBuffer 524288000 || true
             echo "=== git retry config ==="
             git config --global --list | grep -E "http\.(retry|lowSpeed)" || true
-            # Add zile and xfce4-session packages needed by command-not-found alternatives
-            # Must use --packages-pre-additional so they are built BEFORE command-not-found
-            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686 --packages-pre-additional zile,xfce4-session
+            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
           ' 2>&1 | tee bootstrap_build.log
           ls -lh bootstrap-*.zip || true
           find . -maxdepth 2 -name "bootstrap-*.zip" -ls

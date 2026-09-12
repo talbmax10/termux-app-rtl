@@ -367,9 +367,14 @@ public final class TerminalRenderer {
             mTextPaint.setStrikeThruText(strikeThrough);
             mTextPaint.setColor(foreColor);
 
-            canvas.drawTextRun(text, startCharIndex, runWidthChars,
-                    startCharIndex, runWidthChars,
-                    left, y - mFontLineSpacingAndAscent, isRtl, mTextPaint);
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                canvas.drawTextRun(text, startCharIndex, runWidthChars,
+                        startCharIndex, runWidthChars,
+                        left, y - mFontLineSpacingAndAscent, isRtl, mTextPaint);
+            } else {
+                canvas.drawText(text, startCharIndex, runWidthChars,
+                        left, y - mFontLineSpacingAndAscent, mTextPaint);
+            }
         }
 
         if (savedMatrix) canvas.restore();

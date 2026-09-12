@@ -52,14 +52,11 @@ jobs:
                       grep -n docbook.org packages/docbook-xml/build.sh || true
                       grep -n archive.docbook packages/docbook-xml/build.sh || true
                     fi
-                    # Fix dos2unix checksum and source URL (waterlan.home.xs4all.nl DNS issues)
-                    if [ -f packages/dos2unix/build.sh ]; then
-                      sed -i 's|https://waterlan.home.xs4all.nl/dos2unix/dos2unix-${TERMUX_PKG_VERSION}.tar.gz|https://github.com/termux/termux-packages/releases/download/dos2unix-7.5.2/dos2unix-${TERMUX_PKG_VERSION}.tar.gz|' packages/dos2unix/build.sh || true
-                      sed -i 's/264742446608442eb48f96c20af6da303cb3a92b364e72cb7e24f88239c4bf3a/0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5/' packages/dos2unix/build.sh || true
-                      echo "=== dos2unix URL and checksum after patch ==="
-                      grep -n TERMUX_PKG_SRCURL packages/dos2unix/build.sh || true
-                      grep -n TERMUX_PKG_SHA256 packages/dos2unix/build.sh || true
-                    fi
+                    # dos2unix checksum fixed in local build.sh (b900ed9a92ef9b2548a6ac708ec81f724c59f2c089ed90f8e39a4e1287b28c1f)
+                    # waterlan.home.xs4all.nl works with retries
+                    echo "=== dos2unix URL and checksum (using local build.sh values) ==="
+                    grep -n TERMUX_PKG_SRCURL packages/dos2unix/build.sh || true
+                    grep -n TERMUX_PKG_SHA256 packages/dos2unix/build.sh || true
                     # Patch build-bootstraps.sh to remove command-not-found (circular dependency)
                     # Write Python script to file and execute to avoid YAML indentation issues
                     cat > /tmp/patch_bootstrap.py << 'PYEOF'

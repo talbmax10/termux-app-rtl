@@ -63,6 +63,13 @@ jobs:
             grep -n docbook.org packages/docbook-xml/build.sh || true
             grep -n archive.docbook packages/docbook-xml/build.sh || true
           fi
+          # Remove command-not-found from bootstrap packages in cloned repo (circular dependency)
+          sed -i '/PACKAGES_LIST+=("command-not-found")/d' scripts/build-bootstraps.sh
+          # Replace the if/else block with just proot
+          sed -i '/if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ { /if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ s/.*//; }' scripts/build-bootstraps.sh
+          sed -i '/if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ c\		PACKAGES_LIST+=("proot")' scripts/build-bootstraps.sh
+          echo "=== command-not-found removed from bootstrap ==="
+          grep -n command-not-found scripts/build-bootstraps.sh || echo "Not found (expected)"
           # Verify derived paths are correct for isolated package
           TERMUX_PKGS__BUILD__REPO_ROOT_DIR="$(pwd)" bash -c '
             set -euo pipefail

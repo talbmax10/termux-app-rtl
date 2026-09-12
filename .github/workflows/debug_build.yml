@@ -63,11 +63,12 @@ jobs:
             grep -n docbook.org packages/docbook-xml/build.sh || true
             grep -n archive.docbook packages/docbook-xml/build.sh || true
           fi
-          # Remove command-not-found from bootstrap packages in cloned repo (circular dependency)
+          # Patch build-bootstraps.sh to remove command-not-found (circular dependency)
+          # Replace the if/else block with just proot and comment
           sed -i '/PACKAGES_LIST+=("command-not-found")/d' scripts/build-bootstraps.sh
-          # Replace the if/else block with just proot
-          sed -i '/if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ { /if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ s/.*//; }' scripts/build-bootstraps.sh
-          sed -i '/if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/,/^		fi/ c\		PACKAGES_LIST+=("proot")' scripts/build-bootstraps.sh
+          sed -i 's/if \[\[ "\$BOOTSTRAP_ANDROID10_COMPATIBLE" == "false" \]\]; then/PATCHED_IF_BLOCK/' scripts/build-bootstraps.sh
+          sed -i '/PATCHED_IF_BLOCK/,/^		fi/ { /PATCHED_IF_BLOCK/,/else/ { /PACKAGES_LIST+=("proot")/d; /else/d; }; /^		fi/ { x; s/.*/		# command-not-found pulls in heavy dependencies (zile, xfce4-session, valac, graphviz)\n		# which have circular dependency issues. Skip it for bootstrap.\n		# PACKAGES_LIST+=("command-not-found")\n		PACKAGES_LIST+=("proot")/; G; } }' scripts/build-bootstraps.sh
+          sed -i 's/PATCHED_IF_BLOCK//' scripts/build-bootstraps.sh
           echo "=== command-not-found removed from bootstrap ==="
           grep -n command-not-found scripts/build-bootstraps.sh || echo "Not found (expected)"
           # Verify derived paths are correct for isolated package

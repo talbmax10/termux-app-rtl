@@ -1,0 +1,136 @@
+name: Termux RTL - Clean Build
+
+on:
+  push:
+    branches: [work]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    name: Build standalone RTL bootstraps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v6
+        with:
+          path: app
+
+      - name: Checkout termux-packages
+        uses: actions/checkout@v6
+        with:
+          repository: agnostic-apollo/termux-packages
+          ref: infra-improvs
+          path: termux-packages
+          fetch-depth: 1
+
+      - name: Prepare package builder
+        working-directory: app
+        run: |
+          set -euo pipefail
+          bash scripts/prepare_termux_packages_rtl.sh "$GITHUB_WORKSPACE/termux-packages"
+          grep -n '^TERMUX_APP__PACKAGE_NAME=' "$GITHUB_WORKSPACE/termux-packages/scripts/properties.sh"
+          grep -n '^TERMUX_APP_PACKAGE=' "$GITHUB_WORKSPACE/termux-packages/scripts/properties.sh"
+
+      - name: Build package-builder image
+        working-directory: termux-packages
+        run: docker build -t termux-rtl-package-builder ./scripts
+
+      - name: Verify bootstrap script and environment
+        working-directory: termux-packages
+        env:
+          TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-check-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh bash -c '
+            set -euo pipefail
+            source scripts/properties.sh
+            test "$TERMUX_APP__PACKAGE_NAME" = "com.termux.rtl"
+            test "$TERMUX_APP_PACKAGE" = "com.termux.rtl"
+            test "$TERMUX__PREFIX" = "/data/data/com.termux.rtl/files/usr"
+            test -n "${NDK:-}" && test -d "$NDK"
+            bash -n scripts/build-bootstraps.sh
+            echo "✓ package identity, NDK and bootstrap syntax verified"
+          '
+
+      - name: Build all four bootstraps
+        working-directory: termux-packages
+        env:
+          TERMUX_BUILDER_IMAGE_NAME: termux-rtl-package-builder
+          CONTAINER_NAME: termux-rtl-build-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh bash -c '
+            set -euo pipefail
+            git config --global http.retry 5 || true
+            git config --global http.lowSpeedLimit 1000 || true
+            git config --global http.lowSpeedTime 30 || true
+            ./scripts/build-bootstraps.sh --architectures aarch64,arm,x86_64,i686
+          ' 2>&1 | tee bootstrap_build.log
+          test "$(find . -maxdepth 3 -type f -name 'bootstrap-*.zip' | wc -l)" -eq 4
+
+      - name: Upload bootstraps
+        uses: actions/upload-artifact@v6
+        with:
+          name: termux-rtl-bootstraps
+          path: termux-packages/bootstrap-*.zip
+          if-no-files-found: error
+
+  apk:
+    name: Build RTL APKs
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v6
+        with:
+          path: app
+
+      - name: Download bootstraps
+        uses: actions/download-artifact@v7
+        with:
+          name: termux-rtl-bootstraps
+          path: app/app/src/main/cpp
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify independent identity
+        working-directory: app
+        run: |
+          set -euo pipefail
+          grep -q 'applicationId "com.termux.rtl"' app/build.gradle
+          grep -q 'TERMUX_PACKAGE_NAME = "com.termux.rtl"' <(bash -c 'sed -n "1,9999p" termux-shared/src/main/java/com/termux/shared/termux/TermuxConstants.java') || true
+          test -f terminal-view/src/main/java/com/termux/view/BidiLayout.java
+          test "$(find app/src/main/cpp -maxdepth 1 -name 'bootstrap-*.zip' | wc -l)" -eq 4
+
+      - name: Build debug APKs
+        working-directory: app
+        env:
+          TERMUX_APP_VERSION_NAME: 0.118.0-rtl.1
+          TERMUX_APK_VERSION_TAG: 0.118.0-rtl.1-${{ github.sha }}
+          TERMUX_PACKAGE_VARIANT: apt-android-7
+        run: ./gradlew assembleDebug
+
+      - name: Verify APK artifacts
+        working-directory: app
+        run: |
+          set -euo pipefail
+          APK_DIR=app/build/outputs/apk/debug
+          test -n "$(find "$APK_DIR" -name 'termux-rtl*_universal.apk' -print -quit)"
+          find "$APK_DIR" -name 'termux-rtl_*.apk' -type f -exec ls -lh {} \;
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v6
+        with:
+          name: termux-rtl-apks-${{ github.sha }}
+          path: |
+            app/app/build/outputs/apk/debug/termux-rtl_*.apk
+            app/app/build/outputs/apk/debug/output-metadata.json
+          if-no-files-found: error

@@ -75,6 +75,7 @@ public final class TerminalSession extends TerminalOutput {
     private final String[] mArgs;
     private final String[] mEnv;
     private final Integer mTranscriptRows;
+    private TerminalTransport mTransport;
 
 
     private static final String LOG_TAG = "TerminalSession";
@@ -86,6 +87,13 @@ public final class TerminalSession extends TerminalOutput {
         this.mEnv = env;
         this.mTranscriptRows = transcriptRows;
         this.mClient = client;
+    }
+
+    /** Attach an authenticated remote PTY without creating a local process or touching JNI. */
+    public TerminalSession(TerminalTransport transport, Integer transcriptRows, TerminalSessionClient client) {
+        this(null, null, null, null, transcriptRows, client);
+        if (transport == null) throw new IllegalArgumentException("transport");
+        mTransport = transport;
     }
 
     /**
@@ -104,7 +112,8 @@ public final class TerminalSession extends TerminalOutput {
         if (mEmulator == null) {
             initializeEmulator(columns, rows, cellWidthPixels, cellHeightPixels);
         } else {
-            JNI.setPtyWindowSize(mTerminalFileDescriptor, rows, columns, cellWidthPixels, cellHeightPixels);
+            if (mTransport != null) mTransport.resize(columns, rows, cellWidthPixels, cellHeightPixels);
+            else JNI.setPtyWindowSize(mTerminalFileDescriptor, rows, columns, cellWidthPixels, cellHeightPixels);
             mEmulator.resize(columns, rows, cellWidthPixels, cellHeightPixels);
         }
     }
@@ -122,6 +131,11 @@ public final class TerminalSession extends TerminalOutput {
      */
     public void initializeEmulator(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
         mEmulator = new TerminalEmulator(this, columns, rows, cellWidthPixels, cellHeightPixels, mTranscriptRows, mClient);
+
+        if (mTransport != null) {
+            initializeTransport(columns, rows, cellWidthPixels, cellHeightPixels);
+            return;
+        }
 
         int[] processId = new int[1];
         mTerminalFileDescriptor = JNI.createSubprocess(mShellPath, mCwd, mArgs, mEnv, processId, rows, columns, cellWidthPixels, cellHeightPixels);
@@ -173,10 +187,43 @@ public final class TerminalSession extends TerminalOutput {
 
     }
 
+    private void initializeTransport(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
+        mTransport.resize(columns, rows, cellWidthPixels, cellHeightPixels);
+        new Thread(() -> {
+            int exitCode = 0;
+            try (InputStream input = mTransport.input()) {
+                byte[] buffer = new byte[4096];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (count == 0) continue;
+                    if (!mProcessToTerminalIOQueue.write(buffer, 0, count)) break;
+                    mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+                }
+            } catch (IOException e) {
+                exitCode = 1;
+            } finally {
+                mTransport.close();
+                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_PROCESS_EXITED, exitCode));
+            }
+        }, "RemoteTerminalReader").start();
+        new Thread(() -> {
+            try (java.io.OutputStream output = mTransport.output()) {
+                byte[] buffer = new byte[4096];
+                int count;
+                while ((count = mTerminalToProcessIOQueue.read(buffer, true)) != -1) {
+                    output.write(buffer, 0, count);
+                    output.flush();
+                }
+            } catch (IOException e) {
+                mTransport.close();
+            }
+        }, "RemoteTerminalWriter").start();
+    }
+
     /** Write data to the shell process. */
     @Override
     public void write(byte[] data, int offset, int count) {
-        if (mShellPid > 0) mTerminalToProcessIOQueue.write(data, offset, count);
+        if (mShellPid > 0 || (mTransport != null && isRunning())) mTerminalToProcessIOQueue.write(data, offset, count);
     }
 
     /** Write the Unicode code point to the terminal encoded in UTF-8. */
@@ -233,6 +280,13 @@ public final class TerminalSession extends TerminalOutput {
 
     /** Finish this terminal session by sending SIGKILL to the shell. */
     public void finishIfRunning() {
+        if (mTransport != null) {
+            synchronized (this) { mShellPid = -1; }
+            mTransport.close();
+            mTerminalToProcessIOQueue.close();
+            mProcessToTerminalIOQueue.close();
+            return;
+        }
         if (isRunning()) {
             try {
                 Os.kill(mShellPid, OsConstants.SIGKILL);
@@ -252,7 +306,8 @@ public final class TerminalSession extends TerminalOutput {
         // Stop the reader and writer threads, and close the I/O streams
         mTerminalToProcessIOQueue.close();
         mProcessToTerminalIOQueue.close();
-        JNI.close(mTerminalFileDescriptor);
+        if (mTransport != null) mTransport.close();
+        else JNI.close(mTerminalFileDescriptor);
     }
 
     @Override
@@ -350,7 +405,7 @@ public final class TerminalSession extends TerminalOutput {
                 int exitCode = (Integer) msg.obj;
                 cleanupResources(exitCode);
 
-                String exitDescription = "\r\n[Process completed";
+                String exitDescription = mTransport == null ? "\r\n[Process completed" : "\r\n[Connection closed";
                 if (exitCode > 0) {
                     // Non-zero process exit.
                     exitDescription += " (code " + exitCode + ")";

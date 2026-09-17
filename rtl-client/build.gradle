@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.termux.rtlclient'
+    compileSdkVersion project.properties.compileSdkVersion.toInteger()
+    defaultConfig {
+        applicationId 'com.termux.rtl'
+        minSdkVersion 26
+        targetSdkVersion 28
+        versionCode 119
+        versionName '0.119.0-rtl-ssh.1'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    signingConfigs {
+        debug {
+            storeFile rootProject.file('app/testkey_untrusted.jks')
+            keyAlias 'alias'
+            storePassword 'xrj45yWGLbsO7W0v'
+            keyPassword 'xrj45yWGLbsO7W0v'
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.debug }
+        release { minifyEnabled false }
+    }
+    testOptions { unitTests.includeAndroidResources = true }
+}
+dependencies {
+    implementation project(':terminal-view')
+    implementation 'com.github.mwiede:jsch:0.2.26'
+    testImplementation 'junit:junit:4.13.2'
+}

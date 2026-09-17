@@ -1,5 +1,9 @@
 # Termux RTL — independent ARM64 application
 
+> Historical alternative, not the current product. For the original files/tools
+> via local SSH, see [RTL-SSH-AR.md](RTL-SSH-AR.md). This native-bootstrap build
+> failed and has not produced a usable standalone APK.
+
 ## Installation and compatibility
 
 The standalone APK has Android application ID **`com.termux.rtl`** and launcher

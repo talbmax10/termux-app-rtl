@@ -29,13 +29,15 @@ disabled from the menu. Font fallback and Arabic ligatures split by cursor/color
 boundaries need visual testing on Android; glyphs are fitted to terminal columns.
 No device/emulator visual validation has been performed in the coding sandbox.
 
-## Standalone build / installation
+## Current product: local SSH client
 
-The current branch targets **Termux RTL** (`com.termux.rtl`) on ARM64, to install
-alongside the original application. See [RTL-STANDALONE.md](RTL-STANDALONE.md) for
-the source-built bootstrap, build commands, installation and important package
-repository limitations. The previous rtl.1 universal APK used `com.termux` and
-cannot be installed side by side with official Termux.
+For side-by-side installation **using the original Termux files and tools**, use
+`:rtl-client:assembleDebug` and the **RTL Local SSH APK** workflow. No custom
+bootstrap is required. See [the Arabic setup/security guide](RTL-SSH-AR.md).
+
+The earlier native standalone build in [RTL-STANDALONE.md](RTL-STANDALONE.md)
+creates a separate environment and cannot access the original app's private files;
+it is not the selected product. Its source-bootstrap workflow is now manual-only.
 
 ## Manual Android checks
 

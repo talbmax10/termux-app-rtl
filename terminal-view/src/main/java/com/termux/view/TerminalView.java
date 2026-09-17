@@ -38,7 +38,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
+import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalEmulator;
+import com.termux.terminal.TerminalRow;
 import com.termux.terminal.TerminalSession;
 import com.termux.view.textselection.TextSelectionCursorController;
 
@@ -569,7 +571,7 @@ public final class TerminalView extends View {
         if (!mRtlEnabled || mEmulator == null || mEmulator.isAlternateBufferActive()) return null;
         TerminalBuffer screen = mEmulator.getScreen();
         if (row < -screen.getActiveTranscriptRows() || row >= mEmulator.mRows) return null;
-        com.termux.terminal.TerminalRow line = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
+        TerminalRow line = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
         return TerminalBidi.create(line.mText, line.getSpaceUsed(), mEmulator.mColumns);
     }
 

@@ -3,7 +3,7 @@ name: RTL APK
 on:
   workflow_dispatch:
   push:
-    branches: [arena/01a0b126-termux-app-rtl]
+    branches: [rtl-only]
     paths:
       - '**.java'
       - '**.gradle'

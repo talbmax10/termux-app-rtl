@@ -176,6 +176,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private float mTerminalToolbarDefaultHeight;
 
 
+    private static final int CONTEXT_MENU_TOGGLE_RTL = 12;
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
     private static final int CONTEXT_MENU_SHARE_TRANSCRIPT_ID = 1;
     private static final int CONTEXT_MENU_SHARE_SELECTED_TEXT = 10;
@@ -488,6 +489,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         // Set termux terminal view
         mTerminalView = findViewById(R.id.terminal_view);
+        mTerminalView.setRtlEnabled(getSharedPreferences("terminal-rendering", MODE_PRIVATE).getBoolean("rtl", true));
         mTerminalView.setTerminalViewClient(mTermuxTerminalViewClient);
 
         if (mTermuxTerminalViewClient != null)
@@ -645,6 +647,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         menu.add(Menu.NONE, CONTEXT_MENU_KILL_PROCESS_ID, Menu.NONE, getResources().getString(R.string.action_kill_process, getCurrentSession().getPid())).setEnabled(currentSession.isRunning());
         menu.add(Menu.NONE, CONTEXT_MENU_STYLING_ID, Menu.NONE, R.string.action_style_terminal);
         menu.add(Menu.NONE, CONTEXT_MENU_TOGGLE_KEEP_SCREEN_ON, Menu.NONE, R.string.action_toggle_keep_screen_on).setCheckable(true).setChecked(mPreferences.shouldKeepScreenOn());
+        menu.add(Menu.NONE, CONTEXT_MENU_TOGGLE_RTL, Menu.NONE, R.string.action_toggle_rtl).setCheckable(true).setChecked(mTerminalView.isRtlEnabled());
         menu.add(Menu.NONE, CONTEXT_MENU_HELP_ID, Menu.NONE, R.string.action_open_help);
         menu.add(Menu.NONE, CONTEXT_MENU_SETTINGS_ID, Menu.NONE, R.string.action_open_settings);
         menu.add(Menu.NONE, CONTEXT_MENU_REPORT_ID, Menu.NONE, R.string.action_report_issue);
@@ -662,6 +665,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         TerminalSession session = getCurrentSession();
 
         switch (item.getItemId()) {
+            case CONTEXT_MENU_TOGGLE_RTL:
+                boolean enabled = !mTerminalView.isRtlEnabled();
+                mTerminalView.setRtlEnabled(enabled);
+                getSharedPreferences("terminal-rendering", MODE_PRIVATE).edit().putBoolean("rtl", enabled).apply();
+                return true;
             case CONTEXT_MENU_SELECT_URL_ID:
                 mTermuxTerminalViewClient.showUrlSelection();
                 return true;

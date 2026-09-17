@@ -513,11 +513,13 @@ public final class TerminalView extends View {
      */
     public void setTextSize(int textSize) {
         mRenderer = new TerminalRenderer(textSize, mRenderer == null ? Typeface.MONOSPACE : mRenderer.mTypeface);
+        mRenderer.mRtlEnabled = mRtlEnabled;
         updateSize();
     }
 
     public void setTypeface(Typeface newTypeface) {
         mRenderer = new TerminalRenderer(mRenderer.mTextSize, newTypeface);
+        mRenderer.mRtlEnabled = mRtlEnabled;
         updateSize();
         invalidate();
     }
@@ -550,6 +552,36 @@ public final class TerminalView extends View {
             row += mTopRow;
         }
         return new int[] { column, row };
+    }
+
+    private boolean mRtlEnabled = true;
+
+    public boolean isRtlEnabled() { return mRtlEnabled; }
+
+    public void setRtlEnabled(boolean enabled) {
+        if (mRtlEnabled != enabled) stopTextSelectionMode();
+        mRtlEnabled = enabled;
+        if (mRenderer != null) mRenderer.mRtlEnabled = enabled;
+        invalidate();
+    }
+
+    private TerminalBidi bidiForRow(int row) {
+        if (!mRtlEnabled || mEmulator == null || mEmulator.isAlternateBufferActive()) return null;
+        TerminalBuffer screen = mEmulator.getScreen();
+        if (row < -screen.getActiveTranscriptRows() || row >= mEmulator.mRows) return null;
+        com.termux.terminal.TerminalRow line = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
+        return TerminalBidi.create(line.mText, line.getSpaceUsed(), mEmulator.mColumns);
+    }
+
+    /** Convert a visible cell to its logical buffer column for selection only. */
+    public int getLogicalColumn(int visualColumn, int row) {
+        TerminalBidi bidi = bidiForRow(row);
+        return bidi == null ? visualColumn : bidi.logicalColumn(visualColumn);
+    }
+
+    public int getSelectionBoundary(int logicalColumn, int row, boolean end) {
+        TerminalBidi bidi = bidiForRow(row);
+        return bidi == null ? logicalColumn + (end ? 1 : 0) : bidi.visualBoundary(logicalColumn, end);
     }
 
     /** Send a single mouse event code to the terminal. */

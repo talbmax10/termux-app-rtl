@@ -1,0 +1,58 @@
+name: RTL APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/01a0b126-termux-app-rtl]
+    paths:
+      - '**.java'
+      - '**.gradle'
+      - 'gradle.properties'
+      - 'gradle/wrapper/**'
+      - '.github/workflows/rtl_apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android tools
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865'
+      - name: Test and build universal debug APK
+        env:
+          TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
+          TERMUX_APP_VERSION_NAME: '0.118.0-rtl.1'
+          TERMUX_APK_VERSION_TAG: 'rtl-debug'
+        run: ./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Checksums
+        working-directory: app/build/outputs/apk/debug
+        run: sha256sum *.apk > SHA256SUMS
+      - uses: actions/upload-artifact@v6
+        with:
+          name: termux-rtl-debug-universal
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/SHA256SUMS
+          if-no-files-found: error
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: rtl-test-reports
+          path: |
+            terminal-view/build/reports/tests/
+            terminal-emulator/build/reports/tests/
+      - name: Build summary
+        if: always()
+        run: |
+          echo '## RTL build' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Debug APK uses the upstream public test key; do not use it as a private production signing key.' >> "$GITHUB_STEP_SUMMARY"

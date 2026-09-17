@@ -18,6 +18,7 @@ import com.termux.terminal.WcWidth;
  */
 public final class TerminalRenderer {
 
+    boolean mRtlEnabled = true;
     final int mTextSize;
     final Typeface mTypeface;
     private final Paint mTextPaint = new Paint();
@@ -83,6 +84,14 @@ public final class TerminalRenderer {
             TerminalRow lineObject = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
             final char[] line = lineObject.mText;
             final int charsUsedInLine = lineObject.getSpaceUsed();
+
+            TerminalBidi bidi = !mRtlEnabled || mEmulator.isAlternateBufferActive() ? null
+                : TerminalBidi.create(line, charsUsedInLine, columns);
+            if (bidi != null) {
+                renderBidiRow(canvas, lineObject, bidi, palette, heightOffset, cursorX,
+                    cursorShape, selx1, selx2, reverseVideo);
+                continue;
+            }
 
             long lastRunStyle = 0;
             boolean lastRunInsideCursor = false;
@@ -156,9 +165,58 @@ public final class TerminalRenderer {
         }
     }
 
+    private void renderBidiRow(Canvas canvas, TerminalRow row, TerminalBidi bidi, int[] palette,
+                               float y, int cursorX, int cursorShape, int selx1, int selx2,
+                               boolean reverseVideo) {
+        TerminalBidi.Cell[] cells = bidi.cells;
+        for (int i = 0; i < cells.length;) {
+            TerminalBidi.Cell first = cells[i];
+            long style = row.getStyle(first.column);
+            boolean cursor = cursorX >= first.column && cursorX < first.column + first.width;
+            boolean selected = first.column >= selx1 && first.column <= selx2;
+            int start = first.start, end = first.end, width = first.width;
+            int next = i + 1;
+            while (next < cells.length) {
+                TerminalBidi.Cell cell = cells[next];
+                boolean cellCursor = cursorX >= cell.column && cursorX < cell.column + cell.width;
+                boolean cellSelected = cell.column >= selx1 && cell.column <= selx2;
+                if (cell.contextStart != first.contextStart || cell.contextEnd != first.contextEnd
+                    || row.getStyle(cell.column) != style || cellCursor != cursor || cellSelected != selected)
+                    break;
+                start = Math.min(start, cell.start);
+                end = Math.max(end, cell.end);
+                width += cell.width;
+                next++;
+            }
+            // Measure the shaped run, not individual isolated Arabic letters. Keep the full
+            // directional context even when an ANSI style, cursor or selection splits a word.
+            int effect = TextStyle.decodeEffect(style);
+            mTextPaint.setFakeBoldText((effect & (TextStyle.CHARACTER_ATTRIBUTE_BOLD | TextStyle.CHARACTER_ATTRIBUTE_BLINK)) != 0);
+            mTextPaint.setTextSkewX((effect & TextStyle.CHARACTER_ATTRIBUTE_ITALIC) != 0 ? -0.35f : 0.f);
+            float measured = mTextPaint.getTextRunAdvances(row.mText, start, end - start,
+                first.contextStart, first.contextEnd - first.contextStart, first.isRtl(), null, 0);
+            drawTextRun(canvas, row.mText, palette, y, first.visualColumn, width, start, end - start,
+                measured, cursor ? palette[TextStyle.COLOR_INDEX_CURSOR] : 0, cursorShape,
+                style, reverseVideo || selected || (cursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK),
+                first.contextStart, first.contextEnd - first.contextStart, first.isRtl());
+            i = next;
+        }
+        mTextPaint.setFakeBoldText(false);
+        mTextPaint.setTextSkewX(0.f);
+    }
+
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
                              long textStyle, boolean reverseVideo) {
+        drawTextRun(canvas, text, palette, y, startColumn, runWidthColumns, startCharIndex,
+            runWidthChars, mes, cursor, cursorStyle, textStyle, reverseVideo,
+            startCharIndex, runWidthChars, false);
+    }
+
+    private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn,
+                             int runWidthColumns, int startCharIndex, int runWidthChars, float mes,
+                             int cursor, int cursorStyle, long textStyle, boolean reverseVideo,
+                             int contextStart, int contextLength, boolean rtl) {
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
@@ -191,7 +249,7 @@ public final class TerminalRenderer {
 
         mes = mes / mFontWidth;
         boolean savedMatrix = false;
-        if (Math.abs(mes - runWidthColumns) > 0.01) {
+        if (mes > 0 && Math.abs(mes - runWidthColumns) > 0.01) {
             canvas.save();
             canvas.scale(runWidthColumns / mes, 1.f);
             left *= mes / runWidthColumns;
@@ -233,7 +291,7 @@ public final class TerminalRenderer {
             mTextPaint.setColor(foreColor);
 
             // The text alignment is the default Paint.Align.LEFT.
-            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
+            canvas.drawTextRun(text, startCharIndex, runWidthChars, contextStart, contextLength, left, y - mFontLineSpacingAndAscent, rtl, mTextPaint);
         }
 
         if (savedMatrix) canvas.restore();

@@ -235,4 +235,5 @@
     <!-- Donate Preference -->
     <string name="donate_preference_title">Donate</string>
 
+    <string name="action_toggle_rtl">RTL terminal text (experimental)</string>
 </resources>

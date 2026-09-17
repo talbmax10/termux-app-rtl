@@ -92,7 +92,7 @@ public class TextSelectionCursorController implements CursorController {
 
     public void setInitialTextSelectionPosition(MotionEvent event) {
         int[] columnAndRow = terminalView.getColumnAndRow(event, true);
-        mSelX1 = mSelX2 = columnAndRow[0];
+        mSelX1 = mSelX2 = terminalView.getLogicalColumn(columnAndRow[0], columnAndRow[1]);
         mSelY1 = mSelY2 = columnAndRow[1];
 
         TerminalBuffer screen = terminalView.mEmulator.getScreen();
@@ -192,8 +192,8 @@ public class TextSelectionCursorController implements CursorController {
 
             @Override
             public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
-                int x1 = Math.round(mSelX1 * terminalView.mRenderer.getFontWidth());
-                int x2 = Math.round(mSelX2 * terminalView.mRenderer.getFontWidth());
+                int x1 = terminalView.getPointX(terminalView.getSelectionBoundary(mSelX1, mSelY1, false));
+                int x2 = terminalView.getPointX(terminalView.getSelectionBoundary(mSelX2, mSelY2, true));
                 int y1 = Math.round((mSelY1 - 1 - terminalView.getTopRow()) * terminalView.mRenderer.getFontLineSpacing());
                 int y2 = Math.round((mSelY2 + 1 - terminalView.getTopRow()) * terminalView.mRenderer.getFontLineSpacing());
 
@@ -209,7 +209,7 @@ public class TextSelectionCursorController implements CursorController {
                 if (top > terminalBottom) top = terminalBottom;
                 if (bottom > terminalBottom) bottom = terminalBottom;
 
-                outRect.set(x1, top, x2, bottom);
+                outRect.set(Math.min(x1, x2), top, Math.max(x1, x2), bottom);
             }
         }, ActionMode.TYPE_FLOATING);
     }
@@ -232,6 +232,8 @@ public class TextSelectionCursorController implements CursorController {
                 mSelY1 = terminalView.mEmulator.mRows - 1;
 
             }
+
+            mSelX1 = terminalView.getLogicalColumn(mSelX1, mSelY1);
 
             if (mSelY1 > mSelY2) {
                 mSelY1 = mSelY2;
@@ -272,6 +274,8 @@ public class TextSelectionCursorController implements CursorController {
             } else if (mSelY2 > terminalView.mEmulator.mRows - 1) {
                 mSelY2 = terminalView.mEmulator.mRows - 1;
             }
+
+            mSelX2 = terminalView.getLogicalColumn(mSelX2, mSelY2);
 
             if (mSelY1 > mSelY2) {
                 mSelY2 = mSelY1;

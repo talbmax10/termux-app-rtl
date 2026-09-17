@@ -24,15 +24,24 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android tools
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865'
+        run: |
+          set -o pipefail
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0' 'ndk;29.0.14206865' 2>&1 | tee /tmp/sdk.log || {
+            while IFS= read -r line; do echo "::error::$line"; done < <(tail -20 /tmp/sdk.log)
+            exit 1
+          }
       - name: Test and build universal debug APK
         env:
           TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
           TERMUX_APP_VERSION_NAME: '0.118.0-rtl.1'
           TERMUX_APK_VERSION_TAG: 'rtl-debug'
-        run: ./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log || {
+            while IFS= read -r line; do echo "::error::$line"; done < <(grep -E -A 12 'What went wrong|FAILED|error:|Caused by:' /tmp/build.log | head -70)
+            exit 1
+          }
       - name: Checksums
         working-directory: app/build/outputs/apk/debug
         run: sha256sum *.apk > SHA256SUMS

@@ -37,3 +37,12 @@ local.properties
 .swp
 ehthumbs.db
 Thumbs.db
+
+# Python build helpers
+__pycache__/
+*.pyc
+
+# Standalone bootstrap staging
+/rtl-bootstrap/
+/packages-source/
+/bootstrap-build.log

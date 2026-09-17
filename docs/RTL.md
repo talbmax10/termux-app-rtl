@@ -29,27 +29,13 @@ disabled from the menu. Font fallback and Arabic ligatures split by cursor/color
 boundaries need visual testing on Android; glyphs are fitted to terminal columns.
 No device/emulator visual validation has been performed in the coding sandbox.
 
-## Build
+## Standalone build / installation
 
-Use JDK 17, Android SDK platform 36 and NDK 29.0.14206865. The Gradle wrapper is
-pinned to 8.13 for Android Gradle Plugin 8.13.2 (instead of unsupported Gradle 9).
-
-```sh
-export TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS=0
-export TERMUX_APP_VERSION_NAME=0.118.0-rtl.1
-export TERMUX_APK_VERSION_TAG=rtl-debug
-./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug
-```
-
-Output: `app/build/outputs/apk/debug/termux-app_rtl-debug_universal.apk`.
-The **RTL APK** GitHub Actions workflow runs the tests and publishes this APK plus
-a SHA-256 checksum as an artifact.
-
-The APK keeps package ID `com.termux` and uses the upstream **public debug test
-key**, not a private production key. It cannot update an installation signed with
-a different key. Back up Termux data before uninstalling an existing installation;
-uninstalling deletes its data. Plugins must have compatible signatures. Do not
-publish this debug build as a privately signed production release.
+The current branch targets **Termux RTL** (`com.termux.rtl`) on ARM64, to install
+alongside the original application. See [RTL-STANDALONE.md](RTL-STANDALONE.md) for
+the source-built bootstrap, build commands, installation and important package
+repository limitations. The previous rtl.1 universal APK used `com.termux` and
+cannot be installed side by side with official Termux.
 
 ## Manual Android checks
 

@@ -1,4 +1,4 @@
-name: RTL APK
+name: RTL Standalone ARM64 APK
 
 on:
   workflow_dispatch:
@@ -7,6 +7,8 @@ on:
     paths:
       - '**.java'
       - '**.gradle'
+      - 'scripts/**'
+      - 'app/src/main/res/**'
       - 'gradle.properties'
       - 'gradle/wrapper/**'
       - '.github/workflows/rtl_apk.yml'
@@ -14,8 +16,56 @@ on:
 permissions:
   contents: read
 
+env:
+  PACKAGES_REVISION: 4f7f86a4159a3f1b90ab839f8cd9be8c301138a5
+
 jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test standalone identity and bootstrap validation
+        run: python3 scripts/test_rtl_standalone.py
+      - uses: actions/cache@v4
+        id: bootstrap-cache
+        with:
+          path: rtl-bootstrap
+          key: rtl-arm64-${{ env.PACKAGES_REVISION }}-${{ hashFiles('scripts/prepare-rtl-packages.py', 'scripts/package-rtl-bootstrap.py') }}
+      - uses: actions/checkout@v6
+        if: steps.bootstrap-cache.outputs.cache-hit != 'true'
+        with:
+          repository: termux/termux-packages
+          ref: ${{ env.PACKAGES_REVISION }}
+          path: packages-source
+      - name: Configure independent prefix
+        if: steps.bootstrap-cache.outputs.cache-hit != 'true'
+        run: python3 scripts/prepare-rtl-packages.py packages-source
+      - name: Compile ARM64 bootstrap from source (no upstream prebuilt debs)
+        if: steps.bootstrap-cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          cd packages-source
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 2>&1 | tee ../bootstrap-build.log || {
+            while IFS= read -r line; do echo "::error::$line"; done < <(tail -35 ../bootstrap-build.log)
+            exit 1
+          }
+      - name: Verify and package isolated bootstrap
+        if: steps.bootstrap-cache.outputs.cache-hit != 'true'
+        run: python3 scripts/package-rtl-bootstrap.py packages-source/bootstrap-aarch64.zip rtl-bootstrap "$PACKAGES_REVISION"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: rtl-arm64-bootstrap
+          path: rtl-bootstrap/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: rtl-bootstrap-build-log
+          path: bootstrap-build.log
+
   build:
+    needs: bootstrap
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -46,25 +96,37 @@ jobs:
             while IFS= read -r line; do echo "::error::$line"; done < <(tail -20 /tmp/sdk.log)
             exit 1
           }
-      - name: Test and build universal debug APK
+      - uses: actions/download-artifact@v7
+        with:
+          name: rtl-arm64-bootstrap
+          path: rtl-bootstrap
+      - name: Test and build standalone ARM64 debug APK
         env:
-          TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
-          TERMUX_APP_VERSION_NAME: '0.118.0-rtl.1'
-          TERMUX_APK_VERSION_TAG: 'rtl-debug'
+          TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '1'
+          TERMUX_RTL_BOOTSTRAP_DIR: ${{ github.workspace }}/rtl-bootstrap
+          TERMUX_APP_VERSION_NAME: '0.118.0-rtl.2'
+          TERMUX_APK_VERSION_TAG: 'rtl-standalone-debug'
         run: |
           set -o pipefail
           ./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log || {
             while IFS= read -r line; do echo "::error::$line"; done < <(grep -E -A 12 'What went wrong|FAILED|error:|Caused by:' /tmp/build.log | head -70)
             exit 1
           }
+      - name: Verify APK package and architecture
+        run: |
+          APK=app/build/outputs/apk/debug/termux-app_rtl-standalone-debug_arm64-v8a.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/apk-badging.txt
+          grep "package: name='com.termux.rtl'" /tmp/apk-badging.txt
+          grep "native-code: 'arm64-v8a'" /tmp/apk-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
       - name: Checksums
         working-directory: app/build/outputs/apk/debug
-        run: sha256sum *.apk > SHA256SUMS
+        run: sha256sum *_arm64-v8a.apk > SHA256SUMS
       - uses: actions/upload-artifact@v6
         with:
-          name: termux-rtl-debug-universal
+          name: termux-rtl-standalone-arm64
           path: |
-            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*_arm64-v8a.apk
             app/build/outputs/apk/debug/SHA256SUMS
           if-no-files-found: error
       - name: Upload test reports

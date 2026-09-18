@@ -46,23 +46,37 @@ jobs:
             while IFS= read -r line; do echo "::error::$line"; done < <(tail -20 /tmp/sdk.log)
             exit 1
           }
-      - name: Test and build universal debug APK
+      - name: Test and build ARM64 debug APK
         env:
           TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: '0'
           TERMUX_APP_VERSION_NAME: '0.118.0-rtl.1'
-          TERMUX_APK_VERSION_TAG: 'rtl-debug'
+          TERMUX_APK_VERSION_TAG: 'rtl-arm64'
         run: |
           set -o pipefail
           ./gradlew :terminal-view:testDebugUnitTest :terminal-emulator:testDebugUnitTest :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log || {
             while IFS= read -r line; do echo "::error::$line"; done < <(grep -E -A 12 'What went wrong|FAILED|error:|Caused by:' /tmp/build.log | head -70)
             exit 1
           }
+      - name: Verify exactly one ARM64 APK
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print)
+          test "${#apks[@]}" -eq 1
+          apk="${apks[0]}"
+          echo "APK: $apk"
+          echo "Size: $(stat -c%s "$apk") bytes"
+          unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/'
+          if unzip -Z1 "$apk" | grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo "Unexpected non-ARM64 native library found"
+            exit 1
+          fi
+          echo "Verified: exactly one APK, ARM64-only native libraries."
       - name: Checksums
         working-directory: app/build/outputs/apk/debug
         run: sha256sum *.apk > SHA256SUMS
       - uses: actions/upload-artifact@v6
         with:
-          name: termux-rtl-debug-universal
+          name: termux-rtl-debug-arm64
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/debug/SHA256SUMS
@@ -78,5 +92,8 @@ jobs:
       - name: Build summary
         if: always()
         run: |
-          echo '## RTL build' >> "$GITHUB_STEP_SUMMARY"
+          echo '## RTL ARM64 build' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Single APK: arm64-v8a only.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Package: com.termux' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Bootstrap: upstream apt-android-7' >> "$GITHUB_STEP_SUMMARY"
           echo 'Debug APK uses the upstream public test key; do not use it as a private production signing key.' >> "$GITHUB_STEP_SUMMARY"
